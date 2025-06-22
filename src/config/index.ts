@@ -19,9 +19,7 @@ export const config = {
   },
   
   scheduler: {
-    hotTokens: '*/30 * * * * *', // 30 seconds
-    regularTokens: '*/2 * * * *', // 2 minutes
-    coldTokens: '*/10 * * * *'    // 10 minutes
+    updateInterval: '*/5 * * * * *' // Update tokens every 2 minutes
   },
   
   rateLimits: {

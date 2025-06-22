@@ -221,9 +221,8 @@ export class TokenService {
 
     let filtered = [...tokens];
 
-    // Apply period-based filtering/sorting
+    // Apply period-based filtering first
     if (filters.period) {
-      // Filter and sort based on the selected time period
       filtered = this.applyPeriodFilter(filtered, filters.period);
     }
 
@@ -232,29 +231,72 @@ export class TokenService {
       filtered = this.applySorting(filtered, filters.sortBy, filters.period);
     }
 
-    // Apply pagination
-    if (filters.limit) {
+    // Apply cursor-based pagination
+    if (filters.cursor) {
+      const cursorIndex = filtered.findIndex(token => token.token_address === filters.cursor);
+      if (cursorIndex !== -1) {
+        filtered = filtered.slice(cursorIndex + 1);
+      }
+    }
+
+    // Apply limit
+    if (filters.limit && filters.limit > 0) {
       filtered = filtered.slice(0, filters.limit);
     }
 
     return filtered;
   }
 
-  async detectPriceChanges(newTokens: Token[]): Promise<Token[]> {
-    const changedTokens: Token[] = [];
-    
-    for (const newToken of newTokens) {
-      const cached = await this.cache.getToken(newToken.token_address);
+  async detectChangedTokens(newTokens: Token[]): Promise<Token[]> {
+    if (newTokens.length === 0) return [];
+
+    try {
+      const changedTokens: Token[] = [];
       
-      if (cached) {
-        const priceChange = Math.abs(newToken.price_sol - cached.price_sol) / cached.price_sol;
+      // Check each token against cached version
+      for (const newToken of newTokens) {
+        const cacheKey = `token:${newToken.token_address}`;
+        const cachedTokenData = await this.cache.get<string>(cacheKey);
         
-        if (priceChange > 0.01) { // 1% threshold
+        if (!cachedTokenData) {
+          // New token - consider it changed
+          changedTokens.push(newToken);
+          continue;
+        }
+
+        const cachedToken: Token = JSON.parse(cachedTokenData);
+        
+        // Compare key fields that indicate meaningful changes
+        const hasChanged = 
+          // Price changes (using price_sol)
+          Math.abs(newToken.price_sol - cachedToken.price_sol) > (cachedToken.price_sol * 0.001) || // 0.1% price change
+          Math.abs(newToken.price_1hr_change - cachedToken.price_1hr_change) > 0.5 || // 0.5% change in 1h percentage
+          Math.abs((newToken.price_24hr_change || 0) - (cachedToken.price_24hr_change || 0)) > 0.5 || // 0.5% change in 24h percentage
+          Math.abs((newToken.price_7d_change || 0) - (cachedToken.price_7d_change || 0)) > 1.0 || // 1% change in 7d percentage
+          
+          // Volume changes (significant threshold)
+          Math.abs((newToken.volume_1h || 0) - (cachedToken.volume_1h || 0)) > Math.max((cachedToken.volume_1h || 0) * 0.1, 100) || // 10% or $100
+          Math.abs(newToken.volume_24h - cachedToken.volume_24h) > Math.max(cachedToken.volume_24h * 0.05, 1000) || // 5% or $1000
+          Math.abs((newToken.volume_7d || 0) - (cachedToken.volume_7d || 0)) > Math.max((cachedToken.volume_7d || 0) * 0.05, 5000) || // 5% or $5000
+          
+          // Market cap changes
+          Math.abs(newToken.market_cap_sol - cachedToken.market_cap_sol) > Math.max(cachedToken.market_cap_sol * 0.02, 10000) || // 2% or $10k
+          
+          // Transaction count changes
+          Math.abs((newToken.transaction_count_1h || 0) - (cachedToken.transaction_count_1h || 0)) > Math.max((cachedToken.transaction_count_1h || 0) * 0.1, 5) || // 10% or 5 txns
+          Math.abs(newToken.transaction_count_24h - cachedToken.transaction_count_24h) > Math.max(cachedToken.transaction_count_24h * 0.05, 10); // 5% or 10 txns
+
+        if (hasChanged) {
           changedTokens.push(newToken);
         }
       }
+
+      console.log(`Detected ${changedTokens.length} changed tokens out of ${newTokens.length} total tokens`);
+      return changedTokens;
+    } catch (error) {
+      console.error('Error detecting changed tokens:', error instanceof Error ? error.message : String(error));
+      // If we can't detect changes, return all tokens to be safe
+      return newTokens;
     }
-    
-    return changedTokens;
   }
 } 

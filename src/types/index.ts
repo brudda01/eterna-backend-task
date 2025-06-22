@@ -17,12 +17,6 @@ export interface Token {
   price_7d_change?: number;
   protocol: string;
   timestamp: string;
-  // Optional Jupiter-specific fields
-  tags?: string[];
-  created_at?: string;
-  logo_uri?: string;
-  freeze_authority?: string | null;
-  mint_authority?: string | null;
 }
 
 export interface TokenFilters {
@@ -41,8 +35,8 @@ export interface ApiResponse<T> {
 }
 
 export interface WebSocketMessage {
-  type: 'PRICE_UPDATE' | 'VOLUME_UPDATE' | 'NEW_TOKEN';
-  data: Token | Token[];
+  type: 'UPDATE';
+  data: Token | Token[] | any; // Allow any data structure for system messages
   timestamp: string;
 }
 
