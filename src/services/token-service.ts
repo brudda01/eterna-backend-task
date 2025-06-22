@@ -118,6 +118,9 @@ export class TokenService {
 
   private mergeTokenPair(dexToken: Token, geckoToken: Token): Token {
     // Merge logic: DexScreener provides better trading data, GeckoTerminal provides additional validation
+    const mergedVolume24h = dexToken.volume_24h + geckoToken.volume_24h;
+    const mergedTransactionCount24h = dexToken.transaction_count_24h + geckoToken.transaction_count_24h;
+    
     return {
       ...dexToken, // Start with DexScreener data
       // Use GeckoTerminal price if it seems more accurate (non-zero)
@@ -125,7 +128,11 @@ export class TokenService {
       // Use higher market cap value
       market_cap_sol: Math.max(dexToken.market_cap_sol, geckoToken.market_cap_sol),
       // Sum volumes for better accuracy
-      volume_24h: dexToken.volume_24h + geckoToken.volume_24h,
+      volume_24h: mergedVolume24h,
+      volume_sol: mergedVolume24h, // Update compatibility alias
+      // Sum transaction counts
+      transaction_count_24h: mergedTransactionCount24h,
+      transaction_count: mergedTransactionCount24h, // Update compatibility alias
       // Use higher liquidity value  
       liquidity_sol: Math.max(dexToken.liquidity_sol, geckoToken.liquidity_sol),
       // Use latest timestamp

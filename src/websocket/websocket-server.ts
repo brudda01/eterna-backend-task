@@ -72,7 +72,6 @@ export class WebSocketServer {
   }
 
   private handleMessage(ws: WebSocket, message: any): void {
-    console.log(message);
     // Validate message structure
     if (!message || typeof message !== 'object' || !message.type) {
       this.sendToClient(ws, {

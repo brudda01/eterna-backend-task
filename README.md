@@ -19,9 +19,10 @@ A real-time meme coin data aggregation service that combines data from DexScreen
 - **Node.js** with **TypeScript**
 - **Express.js** for REST API
 - **WebSocket (ws)** for real-time updates
-- **Redis** for caching
+- **Redis** (ioredis) for caching
 - **Axios** for HTTP requests
 - **node-cron** for scheduled tasks
+- **Security & Performance**: helmet, cors, compression
 
 ## 📋 Prerequisites
 
@@ -85,7 +86,8 @@ A real-time meme coin data aggregation service that combines data from DexScreen
 
 ## 🔌 API Endpoints
 
-### Health Check
+### Root & Health Check
+- `GET /` - API information and documentation
 - `GET /health` - Basic health status
 - `GET /health/detailed` - Detailed health with dependency status
 
@@ -125,6 +127,40 @@ curl "http://localhost:3000/api/tokens/HMPMa68Zzbx13g3KomQJiH9k9ito9eiUKi4sEEU2p
 
 # Health check
 curl "http://localhost:3000/health"
+
+# Refresh token data manually
+curl -X POST "http://localhost:3000/api/tokens/refresh"
+```
+
+### API Response Format
+
+**Token List Response:**
+```json
+{
+  "data": [...], // Array of token objects
+  "pagination": {
+    "hasNext": true,
+    "nextCursor": "token_address_for_next_page"
+  }
+}
+```
+
+**Single Token Response:**
+```json
+{
+  "data": { ... } // Single token object
+}
+```
+
+**Refresh Response:**
+```json
+{
+  "data": [...], // Array of refreshed tokens
+  "message": "Tokens refreshed successfully",
+  "count": 25, // Total tokens updated
+  "changedCount": 5, // Tokens with significant changes
+  "websocketBroadcast": "5 changed tokens sent to WebSocket clients"
+}
 ```
 
 ## 🔄 WebSocket Connection
@@ -283,8 +319,8 @@ The service provides comprehensive health monitoring:
 
 ## 🔄 Scheduled Updates
 
-The service automatically updates token data every 5 second, providing:
-- Fresh price and volume data
+The service automatically updates token data every 5 seconds, providing:
+- Fresh tokens data
 - Real-time WebSocket notifications for significant changes
 - Automatic cache refresh
 
@@ -300,9 +336,6 @@ The service implements comprehensive error handling:
 ## 🧪 Testing
 
 ```bash
-# Run tests
-npm test
-
 # Check health
 curl http://localhost:3000/health
 

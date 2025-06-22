@@ -8,10 +8,12 @@ export interface Token {
   volume_1h?: number;
   volume_24h: number;
   volume_7d?: number;
+  volume_sol: number; // Alias for volume_24h (for API compatibility)
   liquidity_sol: number;
   transaction_count_1h?: number;
   transaction_count_24h: number;
   transaction_count_7d?: number;
+  transaction_count: number; // Alias for transaction_count_24h (for API compatibility)
   price_1hr_change: number;
   price_24hr_change?: number;
   price_7d_change?: number;
@@ -38,18 +40,4 @@ export interface WebSocketMessage {
   type: 'UPDATE';
   data: Token | Token[] | any; // Allow any data structure for system messages
   timestamp: string;
-}
-
-export interface RawTokenData {
-  [key: string]: any;
-}
-
-export interface DataSource {
-  name: string;
-  baseUrl: string;
-  rateLimit: number;
-  endpoints: {
-    search: string;
-    token: string;
-  };
 } 

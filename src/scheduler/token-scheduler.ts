@@ -21,7 +21,7 @@ export class TokenScheduler {
       await this.updateTokens();
     });
 
-    console.log('Token scheduler started - updating every 2 minutes');
+    console.log(`Token scheduler started - updating every 5 seconds`);
   }
 
   private async updateTokens(): Promise<void> {

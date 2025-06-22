@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { config } from '../config';
-import { Token, RawTokenData } from '../types';
+import { Token } from '../types';
 
 export class DexScreenerClient {
   private client: AxiosInstance;
@@ -90,25 +90,32 @@ export class DexScreenerClient {
                pair.baseToken?.symbol &&
                pair.priceNative !== undefined;
       })
-      .map(pair => ({
-        token_address: pair.baseToken.address,
-        token_name: pair.baseToken.name,
-        token_ticker: pair.baseToken.symbol,
-        price_sol: parseFloat(pair.priceNative) || 0,
-        market_cap_sol: parseFloat(pair.marketCap) || 0,
-        volume_1h: parseFloat(pair.volume?.h1) || 0,
-        volume_24h: parseFloat(pair.volume?.h24) || 0,
-        volume_7d: parseFloat(pair.volume?.d7) || 0,
-        liquidity_sol: parseFloat(pair.liquidity?.usd) || 0,
-        transaction_count_1h: (parseInt(pair.txns?.h1?.buys || 0) + parseInt(pair.txns?.h1?.sells || 0)) || 0,
-        transaction_count_24h: (parseInt(pair.txns?.h24?.buys || 0) + parseInt(pair.txns?.h24?.sells || 0)) || 0,
-        transaction_count_7d: (parseInt(pair.txns?.d7?.buys || 0) + parseInt(pair.txns?.d7?.sells || 0)) || 0,
-        price_1hr_change: parseFloat(pair.priceChange?.h1) || 0,
-        price_24hr_change: parseFloat(pair.priceChange?.h24) || 0,
-        price_7d_change: parseFloat(pair.priceChange?.d7) || 0,
-        protocol: pair.dexId || 'DexScreener',
-        timestamp: new Date().toISOString()
-      }));
+      .map(pair => {
+        const volume24h = parseFloat(pair.volume?.h24) || 0;
+        const transactionCount24h = (parseInt(pair.txns?.h24?.buys || 0) + parseInt(pair.txns?.h24?.sells || 0)) || 0;
+        
+        return {
+          token_address: pair.baseToken.address,
+          token_name: pair.baseToken.name,
+          token_ticker: pair.baseToken.symbol,
+          price_sol: parseFloat(pair.priceNative) || 0,
+          market_cap_sol: parseFloat(pair.marketCap) || 0,
+          volume_1h: parseFloat(pair.volume?.h1) || 0,
+          volume_24h: volume24h,
+          volume_7d: parseFloat(pair.volume?.d7) || 0,
+          volume_sol: volume24h, // Compatibility alias
+          liquidity_sol: parseFloat(pair.liquidity?.usd) || 0,
+          transaction_count_1h: (parseInt(pair.txns?.h1?.buys || 0) + parseInt(pair.txns?.h1?.sells || 0)) || 0,
+          transaction_count_24h: transactionCount24h,
+          transaction_count_7d: (parseInt(pair.txns?.d7?.buys || 0) + parseInt(pair.txns?.d7?.sells || 0)) || 0,
+          transaction_count: transactionCount24h, // Compatibility alias
+          price_1hr_change: parseFloat(pair.priceChange?.h1) || 0,
+          price_24hr_change: parseFloat(pair.priceChange?.h24) || 0,
+          price_7d_change: parseFloat(pair.priceChange?.d7) || 0,
+          protocol: pair.dexId || 'DexScreener',
+          timestamp: new Date().toISOString()
+        };
+      });
   }
 
   private async enforceRateLimit(): Promise<void> {

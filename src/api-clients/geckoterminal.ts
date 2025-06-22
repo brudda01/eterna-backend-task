@@ -152,6 +152,8 @@ export class GeckoTerminalClient {
       })
       .map(token => {
         const attributes = token.attributes || {};
+        const volume24h = parseFloat(attributes.volume_usd?.h24) || 0;
+        const transactionCount24h = parseInt(attributes.transactions?.h24?.buys || 0) + parseInt(attributes.transactions?.h24?.sells || 0);
         
         return {
           token_address: token.id || attributes.address || '',
@@ -161,12 +163,14 @@ export class GeckoTerminalClient {
           market_cap_sol: parseFloat(attributes.market_cap_usd) || 0,
           // GeckoTerminal provides current data, not time-period specific
           volume_1h: 0, // Not available
-          volume_24h: parseFloat(attributes.volume_usd?.h24) || 0,
+          volume_24h: volume24h,
           volume_7d: 0, // Not available in this endpoint
+          volume_sol: volume24h, // Compatibility alias
           liquidity_sol: parseFloat(attributes.reserve_in_usd) || 0,
           transaction_count_1h: 0, // Not available
-          transaction_count_24h: parseInt(attributes.transactions?.h24?.buys || 0) + parseInt(attributes.transactions?.h24?.sells || 0),
+          transaction_count_24h: transactionCount24h,
           transaction_count_7d: 0, // Not available
+          transaction_count: transactionCount24h, // Compatibility alias
           price_1hr_change: parseFloat(attributes.price_change_percentage?.h1) || 0,
           price_24hr_change: parseFloat(attributes.price_change_percentage?.h24) || 0,
           price_7d_change: 0, // Not available
