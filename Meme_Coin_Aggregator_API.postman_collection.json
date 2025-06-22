@@ -1,0 +1,398 @@
+{
+  "info": {
+    "name": "Meme Coin Aggregator API",
+    "description": "Real-time meme coin data aggregation service that combines data from DexScreener and GeckoTerminal APIs",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "wsUrl",
+      "value": "ws://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "exampleTokenAddress",
+      "value": "HMPMa68Zzbx13g3KomQJiH9k9ito9eiUKi4sEEU2pump",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & Info",
+      "item": [
+        {
+          "name": "API Information",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Get API information, version, and available endpoints"
+          },
+          "response": []
+        },
+        {
+          "name": "Basic Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Basic health status with service availability"
+          },
+          "response": []
+        },
+        {
+          "name": "Detailed Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/detailed",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "detailed"]
+            },
+            "description": "Detailed health check with Redis latency, memory usage, WebSocket stats"
+          },
+          "response": []
+        }
+      ],
+      "description": "Health monitoring and API information endpoints"
+    },
+    {
+      "name": "Token Endpoints",
+      "item": [
+        {
+          "name": "Get All Tokens (Default)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"]
+            },
+            "description": "Get all tokens with default settings (20 tokens, sorted by volume)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens with Filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?period=24h&sortBy=volume&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "24h",
+                  "description": "Time period filter (1h, 24h, 7d)"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "volume",
+                  "description": "Sort criteria (volume, price_change, market_cap)"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of results (1-100)"
+                }
+              ]
+            },
+            "description": "Get tokens filtered by 24h period, sorted by volume, limited to 10 results"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens with Pagination",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?limit=5&cursor={{exampleTokenAddress}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "Number of results"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{exampleTokenAddress}}",
+                  "description": "Token address to start pagination from"
+                }
+              ]
+            },
+            "description": "Get tokens using cursor-based pagination"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens by Price Change (1h)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?period=1h&sortBy=price_change&limit=15",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "1h",
+                  "description": "1 hour time period"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "price_change",
+                  "description": "Sort by price change"
+                },
+                {
+                  "key": "limit",
+                  "value": "15",
+                  "description": "Get 15 tokens"
+                }
+              ]
+            },
+            "description": "Get tokens with highest 1-hour price changes"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Trending Tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/trending?limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "trending"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "Number of trending tokens (1-50)"
+                }
+              ]
+            },
+            "description": "Get trending tokens sorted by price change"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens by Volume (24h)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/volume?limit=20&period=24h",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "volume"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of tokens (1-50)"
+                },
+                {
+                  "key": "period",
+                  "value": "24h",
+                  "description": "Time period for volume (1h, 24h, 7d)"
+                }
+              ]
+            },
+            "description": "Get tokens sorted by 24h volume"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens by Volume (7d)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/volume?limit=10&period=7d",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "volume"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of tokens"
+                },
+                {
+                  "key": "period",
+                  "value": "7d",
+                  "description": "7-day volume period"
+                }
+              ]
+            },
+            "description": "Get tokens sorted by 7-day volume"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/{{exampleTokenAddress}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "{{exampleTokenAddress}}"]
+            },
+            "description": "Get specific token by address (merged data from DexScreener + GeckoTerminal)"
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "refresh"]
+            },
+            "description": "Manually refresh token data from APIs and broadcast changes via WebSocket"
+          },
+          "response": []
+        }
+      ],
+      "description": "Token data endpoints with filtering, sorting, and pagination"
+    },
+    {
+      "name": "Error Scenarios",
+      "item": [
+        {
+          "name": "Invalid Token Address",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/invalid-address-123",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "invalid-address-123"]
+            },
+            "description": "Test error handling with invalid token address"
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid Period Parameter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?period=invalid&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "invalid",
+                  "description": "Invalid period value"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Test validation error for invalid period parameter"
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid Limit Parameter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?limit=150",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "150",
+                  "description": "Limit exceeds maximum (100)"
+                }
+              ]
+            },
+            "description": "Test validation error for limit exceeding maximum"
+          },
+          "response": []
+        },
+        {
+          "name": "Non-existent Endpoint",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nonexistent",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "nonexistent"]
+            },
+            "description": "Test 404 error handling"
+          },
+          "response": []
+        }
+      ],
+      "description": "Error scenarios and edge cases for testing API validation"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set timestamp for requests",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test for response time",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "// Global test for content type",
+          "pm.test('Content-Type is application/json', function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});"
+        ]
+      }
+    }
+  ]
+} 
