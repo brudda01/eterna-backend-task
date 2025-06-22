@@ -137,7 +137,15 @@ curl -X POST "http://localhost:3000/api/tokens/refresh"
 **Token List Response:**
 ```json
 {
-  "data": [...], // Array of token objects
+  "data": [
+    {
+      "token_address": "HMPMa68Zzbx13g3KomQJiH9k9ito9eiUKi4sEEU2pump",
+      "token_name": "Example Token",
+      "token_ticker": "EXAMPLE",
+      "price_sol": 0.001,
+      "volume_24h": 50000
+    }
+  ],
   "pagination": {
     "hasNext": true,
     "nextCursor": "token_address_for_next_page"
@@ -148,17 +156,30 @@ curl -X POST "http://localhost:3000/api/tokens/refresh"
 **Single Token Response:**
 ```json
 {
-  "data": { ... } // Single token object
+  "data": {
+    "token_address": "HMPMa68Zzbx13g3KomQJiH9k9ito9eiUKi4sEEU2pump",
+    "token_name": "Example Token",
+    "token_ticker": "EXAMPLE",
+    "price_sol": 0.001,
+    "volume_24h": 50000,
+    "market_cap_sol": 1000000
+  }
 }
 ```
 
 **Refresh Response:**
 ```json
 {
-  "data": [...], // Array of refreshed tokens
+  "data": [
+    {
+      "token_address": "HMPMa68Zzbx13g3KomQJiH9k9ito9eiUKi4sEEU2pump",
+      "token_name": "Example Token",
+      "volume_24h": 50000
+    }
+  ],
   "message": "Tokens refreshed successfully",
-  "count": 25, // Total tokens updated
-  "changedCount": 5, // Tokens with significant changes
+  "count": 25,
+  "changedCount": 5,
   "websocketBroadcast": "5 changed tokens sent to WebSocket clients"
 }
 ```
@@ -226,10 +247,17 @@ ws.send(JSON.stringify({ type: 'PING' }));
 {
   "type": "UPDATE",
   "data": {
-    "tokens": [...], // Array of only changed token objects
-    "source": "scheduler", // or "manual"
-    "updateType": "changed", // indicates this contains only changed tokens
-    "count": 5, // number of changed tokens (not total tokens)
+    "tokens": [
+      {
+        "token_address": "HMPMa68Zzbx13g3KomQJiH9k9ito9eiUKi4sEEU2pump",
+        "token_name": "Example Token",
+        "price_sol": 0.001,
+        "volume_24h": 50000
+      }
+    ],
+    "source": "scheduler",
+    "updateType": "changed",
+    "count": 5,
     "timestamp": "2024-01-01T12:00:00.000Z"
   },
   "timestamp": "2024-01-01T12:00:00.000Z"
