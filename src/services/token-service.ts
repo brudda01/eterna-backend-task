@@ -15,19 +15,38 @@ export class TokenService {
   }
 
   async getTokens(filters?: TokenFilters): Promise<Token[]> {
-    // Try cache first
-    const cached = await this.cache.getTokens(filters);
-    if (cached.length > 0) {
-      return this.applyFilters(cached, filters);
-    }
+    try {
+      // Try to get filtered tokens from cache first
+      const cachedTokens = await this.cache.getTokens(filters);
+      if (cachedTokens && cachedTokens.length > 0) {
+        console.log(`Returning ${cachedTokens.length} tokens from cache with filters:`, filters);
+        return cachedTokens;
+      }
 
-    // Fetch and enrich data
-    const tokens = await this.fetchAndEnrichTokens();
-    
-    // Cache the results
-    await this.cache.setTokens(tokens, filters);
-    
-    return this.applyFilters(tokens, filters);
+      // If no cached filtered data, try to get all tokens from cache and filter them
+      const allCachedTokens = await this.cache.getTokens(); // tokens:all
+      if (allCachedTokens && allCachedTokens.length > 0) {
+        console.log(`Filtering ${allCachedTokens.length} cached tokens with filters:`, filters);
+        const filteredTokens = this.applyFilters(allCachedTokens, filters);
+        
+        // Cache this filter combination for future requests
+        if (filters) {
+          await this.cache.setTokens(filteredTokens, filters);
+        }
+        
+        return filteredTokens;
+      }
+
+      // If no cache at all, fetch fresh data (this triggers comprehensive caching)
+      console.log('No cached data found, fetching fresh tokens...');
+      const freshTokens = await this.refreshTokens();
+      return this.applyFilters(freshTokens, filters);
+    } catch (error) {
+      console.error('Error in getTokens:', error instanceof Error ? error.message : String(error));
+      // Fallback: try to return any cached data without filters
+      const fallbackTokens = await this.cache.getTokens();
+      return fallbackTokens || [];
+    }
   }
 
   async getToken(address: string): Promise<Token | null> {
@@ -58,41 +77,118 @@ export class TokenService {
   async refreshTokens(): Promise<Token[]> {
     // Fetch fresh data from both sources
     const tokens = await this.fetchAndEnrichTokens();
-    await this.cache.setTokens(tokens);
+    
+    // Cache the complete token list with multiple cache keys for different access patterns
+    await this.cacheTokensComprehensively(tokens);
+    
     return tokens;
+  }
+
+  private async cacheTokensComprehensively(tokens: Token[]): Promise<void> {
+    try {
+      // 1. Cache the complete unfiltered token list
+      await this.cache.setTokens(tokens); // tokens:all
+      
+      // 2. Cache individual tokens for getToken() and change detection
+      const individualCachePromises = tokens.map(token => 
+        this.cache.setToken(token)
+      );
+      await Promise.all(individualCachePromises);
+      
+      // 3. Pre-cache common filter combinations to speed up API requests
+      const commonFilterCombinations = [
+        // Default API calls
+        { period: '24h' as const, sortBy: 'volume' as const, limit: 20 },
+        { period: '24h' as const, sortBy: 'volume' as const, limit: 50 },
+        { period: '1h' as const, sortBy: 'volume' as const, limit: 20 },
+        { period: '7d' as const, sortBy: 'volume' as const, limit: 20 },
+        { period: '24h' as const, sortBy: 'price_change' as const, limit: 10 },
+        { period: '24h' as const, sortBy: 'market_cap' as const, limit: 20 },
+        // Trending endpoint calls
+        { sortBy: 'price_change' as const, limit: 10 },
+        { sortBy: 'price_change' as const, limit: 50 },
+        // Volume endpoint calls  
+        { sortBy: 'volume' as const, limit: 20 },
+        { sortBy: 'volume' as const, limit: 50 }
+      ];
+      
+      // Pre-filter and cache common combinations
+      const cachePromises = commonFilterCombinations.map(async (filters) => {
+        const filteredTokens = this.applyFilters(tokens, filters);
+        await this.cache.setTokens(filteredTokens, filters);
+      });
+      
+      await Promise.all(cachePromises);
+      
+      console.log(`Cached ${tokens.length} tokens with ${commonFilterCombinations.length} filter combinations + individual token cache`);
+    } catch (error) {
+      console.error('Error caching tokens comprehensively:', error instanceof Error ? error.message : String(error));
+      // Fallback to basic caching
+      await this.cache.setTokens(tokens);
+    }
   }
 
   private async fetchAndEnrichTokens(): Promise<Token[]> {
     try {
-      // Step 1: Get meme tokens from DexScreener
+      // Step 1: Get meme tokens from DexScreener (multiple search queries)
+      console.log('Fetching meme tokens from DexScreener...');
       const dexTokens = await this.dexScreener.searchTokens('meme');
-      console.log(`Fetched ${dexTokens.length} tokens from DexScreener`);
-
-      if (dexTokens.length === 0) {
+      
+      // Step 2: Also get trending tokens for more variety
+      console.log('Fetching trending tokens from DexScreener...');
+      let trendingTokens: Token[] = [];
+      try {
+        trendingTokens = await this.dexScreener.getTrendingTokens();
+      } catch (error) {
+        console.warn('Failed to fetch trending tokens, continuing with search results only:', error instanceof Error ? error.message : String(error));
+      }
+      
+      // Step 3: Combine and deduplicate tokens
+      const allDexTokens = [...dexTokens];
+      const seenAddresses = new Set(dexTokens.map(t => t.token_address));
+      
+      for (const token of trendingTokens) {
+        if (!seenAddresses.has(token.token_address)) {
+          seenAddresses.add(token.token_address);
+          allDexTokens.push(token);
+        }
+      }
+      
+      console.log(`Combined DexScreener data: ${allDexTokens.length} unique tokens (${dexTokens.length} from search + ${trendingTokens.length - (trendingTokens.length - (allDexTokens.length - dexTokens.length))} unique from trending)`);
+      
+      if (allDexTokens.length === 0) {
+        console.log('No tokens found from DexScreener');
         return [];
       }
 
-      // Step 2: Extract addresses for GeckoTerminal
-      const addresses = dexTokens
+      // Step 4: Extract valid Solana addresses for GeckoTerminal enrichment
+      const validAddresses = allDexTokens
         .map(token => token.token_address)
-        .filter(address => address && address.length > 0);
+        .filter(address => this.isValidSolanaAddress(address));
       
-      console.log(`Extracted ${addresses.length} addresses for GeckoTerminal enrichment`);
+      console.log(`Found ${validAddresses.length} valid Solana addresses out of ${allDexTokens.length} total tokens`);
+      
+      if (validAddresses.length === 0) {
+        console.log('No valid Solana addresses found, returning DexScreener data only');
+        return this.filterForDashboard(allDexTokens);
+      }
 
-      // Step 3: Enrich with GeckoTerminal data
-      const geckoTokens = await this.geckoTerminal.getMultipleTokens(addresses);
+      // Step 5: Enrich with GeckoTerminal data
+      console.log('Enriching with GeckoTerminal data...');
+      const geckoTokens = await this.geckoTerminal.getMultipleTokens(validAddresses);
       
-      // Step 4: Merge the data
-      const mergedTokens = this.mergeTokenData(dexTokens, geckoTokens);
+      // Step 6: Merge the datasets
+      const mergedTokens = this.mergeTokenData(allDexTokens, geckoTokens);
+      console.log(`Merged data: ${mergedTokens.length} tokens`);
       
-      // Step 5: Apply dashboard filtering
-      const dashboardTokens = this.filterForDashboard(mergedTokens);
+      // Step 7: Filter for dashboard display
+      const filteredTokens = this.filterForDashboard(mergedTokens);
+      console.log(`Final filtered tokens: ${filteredTokens.length}`);
       
-      console.log(`Merged and filtered to ${dashboardTokens.length} dashboard-ready tokens`);
-      return dashboardTokens;
+      return filteredTokens;
     } catch (error) {
-      console.error('Error fetching and enriching tokens:', error);
-      return [];
+      console.error('Error in fetchAndEnrichTokens:', error instanceof Error ? error.message : String(error));
+      throw error;
     }
   }
 
@@ -305,5 +401,26 @@ export class TokenService {
       // If we can't detect changes, return all tokens to be safe
       return newTokens;
     }
+  }
+
+  private isValidSolanaAddress(address: string): boolean {
+    // Basic Solana address validation
+    if (!address || typeof address !== 'string') return false;
+    
+    // Solana addresses are base58 encoded and typically 32-44 characters
+    // They don't contain 0x prefix (Ethereum) or contain dots/special chars
+    if (address.startsWith('0x')) return false; // Ethereum address
+    if (address.includes('.')) return false; // Invalid format
+    if (address.includes('ibc/')) return false; // Cosmos IBC address
+    if (address.length < 32 || address.length > 44) return false; // Invalid length
+    
+    // Check for valid base58 characters (basic check)
+    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+    if (!base58Regex.test(address)) return false;
+    
+    // Additional checks for obviously invalid addresses
+    if (address.includes('0000000000000000000000000000000000000000')) return false; // Null address patterns
+    
+    return true;
   }
 } 

@@ -26,11 +26,14 @@ export class TokenScheduler {
 
   private async updateTokens(): Promise<void> {
     try {
-      console.log('Updating tokens...');
+      console.log('Scheduled token update starting...');
+      const startTime = Date.now();
+      
       const tokens = await this.tokenService.refreshTokens();
       
       if (tokens.length > 0) {
-        console.log(`Successfully updated ${tokens.length} tokens`);
+        const fetchTime = Date.now() - startTime;
+        console.log(`Successfully fetched and cached ${tokens.length} tokens in ${fetchTime}ms`);
         
         // Detect which tokens have actually changed
         const changedTokens = await this.tokenService.detectChangedTokens(tokens);
@@ -42,11 +45,13 @@ export class TokenScheduler {
         } else {
           console.log('No significant token changes detected - no WebSocket broadcast needed');
         }
+        
+        console.log(`Scheduled update completed in ${Date.now() - startTime}ms - data cached and ready for API requests`);
       } else {
         console.log('No tokens updated - API may be unavailable');
       }
     } catch (error) {
-      console.error('Token update error:', error instanceof Error ? error.message : String(error));
+      console.error('Scheduled token update error:', error instanceof Error ? error.message : String(error));
     }
   }
 

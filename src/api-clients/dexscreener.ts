@@ -15,14 +15,51 @@ export class DexScreenerClient {
   }
 
   async searchTokens(query: string = 'meme'): Promise<Token[]> {
-    return this.withRetry(async () => {
-      await this.enforceRateLimit();
-      
-      const response = await this.client.get(`/search?q=${encodeURIComponent(query)}`);
-      const tokens = this.normalizeTokens(response.data.pairs || []);
-      console.log(`DexScreener returned ${tokens.length} tokens for query: ${query}`);
-      return tokens;
-    }, 'searchTokens');
+    // Use multiple search queries to get more tokens
+    const searchQueries = [
+      'meme',
+      'pepe', 
+      'doge',
+      'shib',
+      'bonk',
+      'floki',
+      'wojak',
+      'chad',
+      'moon',
+      'diamond',
+      'hodl',
+      'ape'
+    ];
+    
+    const allTokens: Token[] = [];
+    const seenAddresses = new Set<string>();
+    
+    for (const searchQuery of searchQueries) {
+      try {
+        // Handle each query with individual retry logic
+        const tokens = await this.withRetry(async () => {
+          await this.enforceRateLimit();
+          const response = await this.client.get(`/search?q=${encodeURIComponent(searchQuery)}`);
+          return this.normalizeTokens(response.data.pairs || []);
+        }, `searchTokens-${searchQuery}`);
+        
+        // Add unique tokens only
+        for (const token of tokens) {
+          if (!seenAddresses.has(token.token_address)) {
+            seenAddresses.add(token.token_address);
+            allTokens.push(token);
+          }
+        }
+        
+        console.log(`DexScreener returned ${tokens.length} tokens for query: ${searchQuery}`);
+      } catch (error) {
+        console.warn(`Failed to fetch tokens for query "${searchQuery}" after retries:`, error instanceof Error ? error.message : String(error));
+        // Continue with other queries even if one fails completely
+      }
+    }
+    
+    console.log(`DexScreener total: ${allTokens.length} unique tokens from ${searchQueries.length} queries`);
+    return allTokens;
   }
 
   async getToken(address: string): Promise<Token | null> {
@@ -34,6 +71,40 @@ export class DexScreenerClient {
       const normalized = this.normalizeTokens(pairs);
       return normalized[0] || null;
     }, 'getToken');
+  }
+
+  async getTrendingTokens(): Promise<Token[]> {
+    // DexScreener doesn't have a trending endpoint, so gonna search for popular meme tokens
+    const popularQueries = ['bonk', 'pepe', 'shib', 'doge', 'floki'];
+    const allTokens: Token[] = [];
+    const seenAddresses = new Set<string>();
+    
+    for (const query of popularQueries) {
+      try {
+        const tokens = await this.withRetry(async () => {
+          await this.enforceRateLimit();
+          const response = await this.client.get(`/search?q=${encodeURIComponent(query)}`);
+          return this.normalizeTokens(response.data.pairs || []);
+        }, `getTrendingTokens-${query}`);
+        
+        // Take only top 5 tokens per query to simulate "trending"
+        const topTokens = tokens
+          .sort((a, b) => b.volume_24h - a.volume_24h)
+          .slice(0, 5);
+        
+        for (const token of topTokens) {
+          if (!seenAddresses.has(token.token_address)) {
+            seenAddresses.add(token.token_address);
+            allTokens.push(token);
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch trending tokens for query "${query}":`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    
+    console.log(`DexScreener trending simulation returned ${allTokens.length} tokens`);
+    return allTokens;
   }
 
   private async withRetry<T>(
