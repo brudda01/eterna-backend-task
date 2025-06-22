@@ -318,7 +318,9 @@ The service provides comprehensive health monitoring:
 - **Logging**: All requests are logged with duration and status codes
 - **Error Tracking**: Comprehensive error logging with stack traces
 
-## 🏗️ Architecture
+## 🏗️ Architecture & Design Decisions
+
+### System Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
@@ -344,6 +346,44 @@ The service provides comprehensive health monitoring:
           │  (Real-time Updates) │
           └──────────────────────┘
 ```
+
+### 🎯 Design Decisions
+
+#### **Data Sources**
+- **DexScreener**: Primary source for meme token search
+- **GeckoTerminal**: Secondary enrichment for additional data
+- **Merge Strategy**: Sum volumes/transactions, use higher values for market cap/liquidity
+
+#### **Caching**
+- **Redis**: 30-second TTL to balance freshness vs API limits
+- **Cache Keys**: `tokens:{period}:{sortBy}:{limit}` for filtered results
+- **Individual Tokens**: `token:{address}` for specific lookups
+
+#### **Change Detection**
+- **Thresholds**: 0.1% price, 5-10% volume, 2% market cap changes
+- **Purpose**: Only broadcast meaningful updates via WebSocket
+
+#### **WebSocket Design**
+- **Single Message Type**: UPDATE for all communications
+- **Heartbeat**: 30-second ping/pong for connection health
+- **Change-Only**: Only send tokens with significant changes
+
+#### **Rate Limiting**
+- **DexScreener**: 300 requests/minute
+- **GeckoTerminal**: 30 requests/minute  
+- **Retry Logic**: Exponential backoff with 3 max retries
+
+#### **API Structure**
+- **Generic**: `/api/tokens` with flexible filtering
+- **Specialized**: `/trending`, `/volume` for common use cases
+- **Pagination**: Cursor-based for large datasets
+
+### 🔄 Data Flow
+
+1. Scheduler fetches from DexScreener → Extract addresses
+2. Enrich with GeckoTerminal → Merge data → Cache results
+3. Detect changes → Broadcast via WebSocket
+4. API requests check cache first → Apply filters → Return results
 
 ## 🔄 Scheduled Updates
 
