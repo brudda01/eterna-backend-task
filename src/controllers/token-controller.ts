@@ -98,27 +98,22 @@ export class TokenController {
     try {
       console.log('Manual token refresh requested');
       
-      // Refreshes data from DexScreener and GeckoTerminal APIs and merges them
-      const tokens = await this.tokenService.refreshTokens();
+      const { allTokens, changedTokens } = await this.tokenService.refreshTokens();
       
-      if (tokens.length > 0) {
-        console.log(`Manual refresh completed: ${tokens.length} tokens updated`);
-        
-        // Detect which tokens have actually changed
-        const changedTokens = await this.tokenService.detectChangedTokens(tokens);
+      if (allTokens.length > 0) {
+        console.log(`Manual refresh completed: ${allTokens.length} tokens fetched`);
         
         if (changedTokens.length > 0) {
-          console.log(`Broadcasting ${changedTokens.length} changed tokens out of ${tokens.length} total`);
-          // Send only the changed tokens via WebSocket
+          console.log(`Broadcasting ${changedTokens.length} changed tokens out of ${allTokens.length} total`);
           this.wsServer.broadcastUpdate(changedTokens, 'manual');
         } else {
           console.log('No significant token changes detected - no WebSocket broadcast needed');
         }
         
         res.json({ 
-          data: tokens,
+          data: allTokens,
           message: 'Tokens refreshed successfully',
-          count: tokens.length,
+          count: allTokens.length,
           changedCount: changedTokens.length,
           websocketBroadcast: changedTokens.length > 0 
             ? `${changedTokens.length} changed tokens sent to WebSocket clients` 

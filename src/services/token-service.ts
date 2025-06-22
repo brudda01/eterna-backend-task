@@ -38,9 +38,9 @@ export class TokenService {
       }
 
       // If no cache at all, fetch fresh data (this triggers comprehensive caching)
-      console.log('No cached data found, fetching fresh tokens...');
-      const freshTokens = await this.refreshTokens();
-      return this.applyFilters(freshTokens, filters);
+      console.log('No cached data found, fetching fresh tokens via refreshTokens...');
+      const { allTokens } = await this.refreshTokens();
+      return this.applyFilters(allTokens, filters);
     } catch (error) {
       console.error('Error in getTokens:', error instanceof Error ? error.message : String(error));
       // Fallback: try to return any cached data without filters
@@ -74,14 +74,25 @@ export class TokenService {
     return null;
   }
 
-  async refreshTokens(): Promise<Token[]> {
-    // Fetch fresh data from both sources
-    const tokens = await this.fetchAndEnrichTokens();
-    
-    // Cache the complete token list with multiple cache keys for different access patterns
-    await this.cacheTokensComprehensively(tokens);
-    
-    return tokens;
+  async refreshTokens(): Promise<{ allTokens: Token[]; changedTokens: Token[] }> {
+    // 1. Get the current list of all tokens from cache to compare against
+    const oldTokens = await this.cache.getTokens();
+
+    // 2. Fetch fresh data from APIs
+    const newTokens = await this.fetchAndEnrichTokens();
+
+    if (newTokens.length === 0) {
+      console.warn('Refresh resulted in 0 tokens. Not updating cache or detecting changes.');
+      return { allTokens: [], changedTokens: [] };
+    }
+
+    // 3. Detect changes by comparing new data against the old cached data
+    const changedTokens = await this.detectChangedTokens(newTokens, oldTokens);
+
+    // 4. NOW, cache the new data comprehensively
+    await this.cacheTokensComprehensively(newTokens);
+
+    return { allTokens: newTokens, changedTokens };
   }
 
   private async cacheTokensComprehensively(tokens: Token[]): Promise<void> {
@@ -130,38 +141,16 @@ export class TokenService {
 
   private async fetchAndEnrichTokens(): Promise<Token[]> {
     try {
-      // Step 1: Get meme tokens from DexScreener (multiple search queries)
       console.log('Fetching meme tokens from DexScreener...');
       const dexTokens = await this.dexScreener.searchTokens('meme');
       
-      // Step 2: Also get trending tokens for more variety
-      console.log('Fetching trending tokens from DexScreener...');
-      let trendingTokens: Token[] = [];
-      try {
-        trendingTokens = await this.dexScreener.getTrendingTokens();
-      } catch (error) {
-        console.warn('Failed to fetch trending tokens, continuing with search results only:', error instanceof Error ? error.message : String(error));
-      }
-      
-      // Step 3: Combine and deduplicate tokens
       const allDexTokens = [...dexTokens];
-      const seenAddresses = new Set(dexTokens.map(t => t.token_address));
-      
-      for (const token of trendingTokens) {
-        if (!seenAddresses.has(token.token_address)) {
-          seenAddresses.add(token.token_address);
-          allDexTokens.push(token);
-        }
-      }
-      
-      console.log(`Combined DexScreener data: ${allDexTokens.length} unique tokens (${dexTokens.length} from search + ${trendingTokens.length - (trendingTokens.length - (allDexTokens.length - dexTokens.length))} unique from trending)`);
       
       if (allDexTokens.length === 0) {
         console.log('No tokens found from DexScreener');
         return [];
       }
 
-      // Step 4: Extract valid Solana addresses for GeckoTerminal enrichment
       const validAddresses = allDexTokens
         .map(token => token.token_address)
         .filter(address => this.isValidSolanaAddress(address));
@@ -173,15 +162,12 @@ export class TokenService {
         return this.filterForDashboard(allDexTokens);
       }
 
-      // Step 5: Enrich with GeckoTerminal data
       console.log('Enriching with GeckoTerminal data...');
       const geckoTokens = await this.geckoTerminal.getMultipleTokens(validAddresses);
       
-      // Step 6: Merge the datasets
       const mergedTokens = this.mergeTokenData(allDexTokens, geckoTokens);
       console.log(`Merged data: ${mergedTokens.length} tokens`);
       
-      // Step 7: Filter for dashboard display
       const filteredTokens = this.filterForDashboard(mergedTokens);
       console.log(`Final filtered tokens: ${filteredTokens.length}`);
       
@@ -350,57 +336,120 @@ export class TokenService {
     return filtered;
   }
 
-  async detectChangedTokens(newTokens: Token[]): Promise<Token[]> {
+  async detectChangedTokens(newTokens: Token[], oldTokens: Token[] | null): Promise<Token[]> {
     if (newTokens.length === 0) return [];
+
+    const oldTokensMap = new Map<string, Token>();
+    if (oldTokens) {
+      for (const token of oldTokens) {
+        oldTokensMap.set(token.token_address, token);
+      }
+      console.log(`Comparing against ${oldTokens.length} cached tokens`);
+    } else {
+      console.log('No cached tokens found - treating all tokens as new/changed');
+    }
 
     try {
       const changedTokens: Token[] = [];
+      let debugCount = 0;
       
       // Check each token against cached version
       for (const newToken of newTokens) {
-        const cacheKey = `token:${newToken.token_address}`;
-        const cachedTokenData = await this.cache.get<string>(cacheKey);
+        const cachedToken = oldTokensMap.get(newToken.token_address);
         
-        if (!cachedTokenData) {
+        if (!cachedToken) {
           // New token - consider it changed
           changedTokens.push(newToken);
+          if (debugCount < 5) {
+            console.log(`New token detected: ${newToken.token_ticker} (${newToken.token_address})`);
+            debugCount++;
+          }
           continue;
         }
 
-        const cachedToken: Token = JSON.parse(cachedTokenData);
+        // More sensitive change detection for testing
+        const priceChange = this.hasPriceChanged(newToken, cachedToken);
+        const volumeChange = this.hasVolumeChanged(newToken, cachedToken);
+        const marketCapChange = this.hasMarketCapChanged(newToken, cachedToken);
+        const transactionChange = this.hasTransactionCountChanged(newToken, cachedToken);
         
-        // Compare key fields that indicate meaningful changes
-        const hasChanged = 
-          // Price changes (using price_sol)
-          Math.abs(newToken.price_sol - cachedToken.price_sol) > (cachedToken.price_sol * 0.001) || // 0.1% price change
-          Math.abs(newToken.price_1hr_change - cachedToken.price_1hr_change) > 0.5 || // 0.5% change in 1h percentage
-          Math.abs((newToken.price_24hr_change || 0) - (cachedToken.price_24hr_change || 0)) > 0.5 || // 0.5% change in 24h percentage
-          Math.abs((newToken.price_7d_change || 0) - (cachedToken.price_7d_change || 0)) > 1.0 || // 1% change in 7d percentage
-          
-          // Volume changes (significant threshold)
-          Math.abs((newToken.volume_1h || 0) - (cachedToken.volume_1h || 0)) > Math.max((cachedToken.volume_1h || 0) * 0.1, 100) || // 10% or $100
-          Math.abs(newToken.volume_24h - cachedToken.volume_24h) > Math.max(cachedToken.volume_24h * 0.05, 1000) || // 5% or $1000
-          Math.abs((newToken.volume_7d || 0) - (cachedToken.volume_7d || 0)) > Math.max((cachedToken.volume_7d || 0) * 0.05, 5000) || // 5% or $5000
-          
-          // Market cap changes
-          Math.abs(newToken.market_cap_sol - cachedToken.market_cap_sol) > Math.max(cachedToken.market_cap_sol * 0.02, 10000) || // 2% or $10k
-          
-          // Transaction count changes
-          Math.abs((newToken.transaction_count_1h || 0) - (cachedToken.transaction_count_1h || 0)) > Math.max((cachedToken.transaction_count_1h || 0) * 0.1, 5) || // 10% or 5 txns
-          Math.abs(newToken.transaction_count_24h - cachedToken.transaction_count_24h) > Math.max(cachedToken.transaction_count_24h * 0.05, 10); // 5% or 10 txns
+        const hasChanged = priceChange || volumeChange || marketCapChange || transactionChange;
 
         if (hasChanged) {
           changedTokens.push(newToken);
+          if (debugCount < 5) {
+            console.log(`Change detected for ${newToken.token_ticker}:`);
+            console.log(`  Price: ${cachedToken.price_sol} -> ${newToken.price_sol} (changed: ${priceChange})`);
+            console.log(`  Volume 24h: ${cachedToken.volume_24h} -> ${newToken.volume_24h} (changed: ${volumeChange})`);
+            console.log(`  Market Cap: ${cachedToken.market_cap_sol} -> ${newToken.market_cap_sol} (changed: ${marketCapChange})`);
+            console.log(`  Transactions: ${cachedToken.transaction_count_24h} -> ${newToken.transaction_count_24h} (changed: ${transactionChange})`);
+            debugCount++;
+          }
         }
       }
 
       console.log(`Detected ${changedTokens.length} changed tokens out of ${newTokens.length} total tokens`);
+      
+      // If no changes detected, show some sample comparisons for debugging
+      if (changedTokens.length === 0 && oldTokens && oldTokens.length > 0) {
+        console.log('No changes detected. Sample comparisons:');
+        for (let i = 0; i < Math.min(3, newTokens.length); i++) {
+          const newToken = newTokens[i];
+          const cachedToken = oldTokensMap.get(newToken.token_address);
+          if (cachedToken) {
+            console.log(`  ${newToken.token_ticker}: Price ${cachedToken.price_sol} -> ${newToken.price_sol}, Volume ${cachedToken.volume_24h} -> ${newToken.volume_24h}`);
+          }
+        }
+      }
+      
       return changedTokens;
     } catch (error) {
       console.error('Error detecting changed tokens:', error instanceof Error ? error.message : String(error));
       // If we can't detect changes, return all tokens to be safe
       return newTokens;
     }
+  }
+
+  private hasPriceChanged(newToken: Token, cachedToken: Token): boolean {
+    // Very sensitive price changes - detect even tiny movements
+    const priceThreshold = Math.max(cachedToken.price_sol * 0.001, 0.00000001); // 0.1% or minimum threshold (very sensitive)
+    const priceDiff = Math.abs(newToken.price_sol - cachedToken.price_sol);
+    
+    // Price change percentages - very sensitive
+    const priceChange1h = Math.abs(newToken.price_1hr_change - cachedToken.price_1hr_change);
+    const priceChange24h = Math.abs((newToken.price_24hr_change || 0) - (cachedToken.price_24hr_change || 0));
+    
+    return priceDiff > priceThreshold || priceChange1h > 0.1 || priceChange24h > 0.1;
+  }
+
+  private hasVolumeChanged(newToken: Token, cachedToken: Token): boolean {
+    // Very sensitive volume changes - detect small movements
+    const volume24hThreshold = Math.max(cachedToken.volume_24h * 0.001, 1); // 0.1% or $1 (very sensitive)
+    const volume24hDiff = Math.abs(newToken.volume_24h - cachedToken.volume_24h);
+    
+    const volume1hThreshold = Math.max((cachedToken.volume_1h || 0) * 0.001, 0.1); // 0.1% or $0.1 (very sensitive)
+    const volume1hDiff = Math.abs((newToken.volume_1h || 0) - (cachedToken.volume_1h || 0));
+    
+    return volume24hDiff > volume24hThreshold || volume1hDiff > volume1hThreshold;
+  }
+
+  private hasMarketCapChanged(newToken: Token, cachedToken: Token): boolean {
+    // Very sensitive market cap changes - detect tiny movements
+    const marketCapThreshold = Math.max(cachedToken.market_cap_sol * 0.001, 1); // 0.1% or $1 (very sensitive)
+    const marketCapDiff = Math.abs(newToken.market_cap_sol - cachedToken.market_cap_sol);
+    
+    return marketCapDiff > marketCapThreshold;
+  }
+
+  private hasTransactionCountChanged(newToken: Token, cachedToken: Token): boolean {
+    // Very sensitive transaction count changes - detect any change
+    const txn24hThreshold = Math.max(cachedToken.transaction_count_24h * 0.001, 0.1); // 0.1% or any change (very sensitive)
+    const txn24hDiff = Math.abs(newToken.transaction_count_24h - cachedToken.transaction_count_24h);
+    
+    const txn1hThreshold = Math.max((cachedToken.transaction_count_1h || 0) * 0.001, 0.1); // 0.1% or any change (very sensitive)
+    const txn1hDiff = Math.abs((newToken.transaction_count_1h || 0) - (cachedToken.transaction_count_1h || 0));
+    
+    return txn24hDiff > txn24hThreshold || txn1hDiff > txn1hThreshold;
   }
 
   private isValidSolanaAddress(address: string): boolean {

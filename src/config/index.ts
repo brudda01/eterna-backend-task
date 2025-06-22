@@ -19,7 +19,7 @@ export const config = {
   },
   
   scheduler: {
-    updateInterval: '*/5 * * * * *' // Update tokens every 2 minutes
+    updateInterval: '*/10 * * * * *' // Update tokens every 10 seconds
   },
   
   rateLimits: {

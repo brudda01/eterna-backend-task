@@ -1,17 +1,16 @@
 # Meme Coin Aggregator API
 
-A real-time meme coin data aggregation service that combines data from DexScreener and GeckoTerminal APIs to provide comprehensive token information with WebSocket support for live updates.
+A real-time meme coin data aggregation service that combines data from DexScreener and GeckoTerminal APIs with WebSocket support for live updates.
 
 ## 🚀 Features
 
 - **Multi-source data aggregation** from DexScreener and GeckoTerminal
-- **Real-time WebSocket updates** for price and volume changes
-- **Intelligent data merging** with duplicate token handling
-- **Redis caching** with 30-second TTL for performance
+- **Real-time WebSocket updates** with smart change detection
+- **Redis caching** with 30-second TTL
 - **Time period filtering** (1h, 24h, 7d) with period-specific data
 - **Rate limiting** with exponential backoff retry logic
 - **Cursor-based pagination** for efficient data retrieval
-- **Comprehensive error handling** and health monitoring
+- **Health monitoring** and error handling
 - **Input validation** and robust API design
 
 ## 🛠️ Tech Stack
@@ -89,7 +88,7 @@ A real-time meme coin data aggregation service that combines data from DexScreen
 ### Root & Health Check
 - `GET /` - API information and documentation
 - `GET /health` - Basic health status
-- `GET /health/detailed` - Detailed health with dependency status
+- `GET /health/detailed` - Detailed health with Redis latency, memory usage, WebSocket stats
 
 ### Token Endpoints
 - `GET /api/tokens` - Get all tokens with optional filters
@@ -143,7 +142,12 @@ curl -X POST "http://localhost:3000/api/tokens/refresh"
       "token_name": "Example Token",
       "token_ticker": "EXAMPLE",
       "price_sol": 0.001,
-      "volume_24h": 50000
+      "volume_24h": 50000,
+      "volume_sol": 50000,
+      "transaction_count_24h": 1500,
+      "transaction_count": 1500,
+      "market_cap_sol": 1000000,
+      "protocol": "DexScreener+GeckoTerminal"
     }
   ],
   "pagination": {
@@ -162,7 +166,8 @@ curl -X POST "http://localhost:3000/api/tokens/refresh"
     "token_ticker": "EXAMPLE",
     "price_sol": 0.001,
     "volume_24h": 50000,
-    "market_cap_sol": 1000000
+    "market_cap_sol": 1000000,
+    "protocol": "DexScreener+GeckoTerminal"
   }
 }
 ```
@@ -233,7 +238,6 @@ ws.send(JSON.stringify({ type: 'PING' }));
   - System messages (connection status, errors, ping responses)
   - Subscription confirmations and other administrative messages
   - Includes source information (scheduler/manual/system) and update metadata
-  - Change detection thresholds: 0.1% price change, 5-10% volume change, 2% market cap change
 
 ### WebSocket Client Commands
 
@@ -267,13 +271,12 @@ ws.send(JSON.stringify({ type: 'PING' }));
 ### Change Detection Criteria
 
 The system detects meaningful changes using these thresholds:
-- **Price**: 0.1% change in SOL price
-- **Price Changes**: 0.5% change in 1h/24h percentages, 1% change in 7d percentage  
-- **Volume**: 5-10% change or minimum dollar thresholds ($100 for 1h, $1000 for 24h, $5000 for 7d)
-- **Market Cap**: 2% change or minimum $10,000 change
-- **Transactions**: 5-10% change or minimum transaction count thresholds
+- **Price**: 2% change in SOL price
+- **Volume**: 10% change in 24h volume, 20% change in 1h volume
+- **Market Cap**: 5% change
+- **Transactions**: 10% change in 24h transactions, 20% change in 1h transactions
 
-Only tokens meeting these change thresholds are included in UPDATE messages, ensuring clients receive meaningful updates without noise.
+Only tokens meeting these change thresholds are included in UPDATE messages.
 
 ### Connection Features
 
@@ -282,15 +285,33 @@ Only tokens meeting these change thresholds are included in UPDATE messages, ens
 - **Error handling**: Robust error handling with proper cleanup
 - **Connection stats**: Available via `/health/detailed` endpoint
 - **Efficient updates**: Only changed tokens sent in UPDATE messages
-- **Smart change detection**: Filters out noise and sends only meaningful changes
-- **Single message type**: All communications use the UPDATE message type for maximum simplicity
+- **Single message type**: All communications use the UPDATE message type
 
-## 📊 Data Sources & Rate Limits
+## 📊 Data Sources & Coverage
 
-- **DexScreener**: 300 requests/minute
-- **GeckoTerminal**: 30 requests/minute
+- **DexScreener**: 300 requests/minute - Primary meme token search
+- **GeckoTerminal**: 30 requests/minute - Token enrichment
 
-The service automatically handles rate limiting with exponential backoff.
+### Search Strategy
+The service uses multiple meme-specific search terms:
+- `meme`, `pepe`, `doge`, `shib`, `bonk`, `floki`, `wojak`, `moon`, `hodl`
+
+### Data Merging
+- **Volume & Transactions**: Summed from both sources
+- **Market Cap & Liquidity**: Higher value selected
+- **Price**: GeckoTerminal preferred when available and non-zero
+- **Protocol**: Indicates merged data source (`DexScreener+GeckoTerminal`)
+
+## 🗄️ Caching Strategy
+
+### Cache Levels
+1. **Complete Dataset**: `tokens:all` - Full unfiltered token list
+2. **Individual Tokens**: `token:{address}` - For direct lookups and change detection
+3. **Filtered Results**: Common filter patterns cached
+
+### Cache Configuration
+- **TTL**: 30 seconds to balance freshness with API rate limits
+- **Keys**: `tokens:{period}:{sortBy}:{limit}` for filtered results
 
 ## 🔧 Configuration
 
@@ -311,12 +332,12 @@ NODE_ENV=development
 
 ## 📈 Monitoring & Health Checks
 
-The service provides comprehensive health monitoring:
+The service provides health monitoring:
 
-- **Basic Health**: `GET /health`
-- **Detailed Health**: `GET /health/detailed` (includes Redis latency, memory usage, uptime)
-- **Logging**: All requests are logged with duration and status codes
-- **Error Tracking**: Comprehensive error logging with stack traces
+- **Basic Health**: `GET /health` - Service status and uptime
+- **Detailed Health**: `GET /health/detailed` - Redis latency, memory usage, WebSocket stats
+- **Request Logging**: All requests logged with duration and status codes
+- **Error Tracking**: Error logging with stack traces
 
 ## 🏗️ Architecture & Design Decisions
 
@@ -325,7 +346,7 @@ The service provides comprehensive health monitoring:
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   DexScreener   │    │  GeckoTerminal   │    │     Redis       │
-│      API        │    │       API        │    │     Cache       │
+│   (9 Queries)   │    │   (Enrichment)   │    │     Cache       │
 └─────────┬───────┘    └─────────┬────────┘    └─────────┬───────┘
           │                      │                       │
           └──────────┬───────────┘                       │
@@ -333,7 +354,7 @@ The service provides comprehensive health monitoring:
           ┌──────────▼───────────┐                       │
           │   Token Service      │◄──────────────────────┘
           │  (Data Merging &     │
-          │   Filtering)         │
+          │   Change Detection)  │
           └──────────┬───────────┘
                      │
           ┌──────────▼───────────┐
@@ -350,18 +371,19 @@ The service provides comprehensive health monitoring:
 ### 🎯 Design Decisions
 
 #### **Data Sources**
-- **DexScreener**: Primary source for meme token search
+- **DexScreener**: Primary source for meme token search with multiple query terms
 - **GeckoTerminal**: Secondary enrichment for additional data
 - **Merge Strategy**: Sum volumes/transactions, use higher values for market cap/liquidity
 
 #### **Caching**
 - **Redis**: 30-second TTL to balance freshness vs API limits
+- **Multi-level**: Complete dataset + individual tokens + filtered combinations
 - **Cache Keys**: `tokens:{period}:{sortBy}:{limit}` for filtered results
-- **Individual Tokens**: `token:{address}` for specific lookups
 
 #### **Change Detection**
-- **Thresholds**: 0.1% price, 5-10% volume, 2% market cap changes
+- **Thresholds**: 2% price, 10-20% volume, 5% market cap changes
 - **Purpose**: Only broadcast meaningful updates via WebSocket
+- **Comparison**: Before/after state comparison to detect changes
 
 #### **WebSocket Design**
 - **Single Message Type**: UPDATE for all communications
@@ -371,7 +393,7 @@ The service provides comprehensive health monitoring:
 #### **Rate Limiting**
 - **DexScreener**: 300 requests/minute
 - **GeckoTerminal**: 30 requests/minute  
-- **Retry Logic**: Exponential backoff with 3 max retries
+- **Retry Logic**: Exponential backoff with configurable parameters
 
 #### **API Structure**
 - **Generic**: `/api/tokens` with flexible filtering
@@ -380,26 +402,36 @@ The service provides comprehensive health monitoring:
 
 ### 🔄 Data Flow
 
-1. Scheduler fetches from DexScreener → Extract addresses
-2. Enrich with GeckoTerminal → Merge data → Cache results
-3. Detect changes → Broadcast via WebSocket
-4. API requests check cache first → Apply filters → Return results
+1. **Scheduled Updates** (every 10 seconds):
+   - Fetch from DexScreener with multiple search queries
+   - Extract and validate Solana addresses
+   - Enrich with GeckoTerminal data
+   - Compare against previous state for changes
+   - Cache at multiple levels
+   - Broadcast only changed tokens via WebSocket
+
+2. **API Requests**:
+   - Check specific filter cache first
+   - Fallback to complete cache with filtering
+   - Apply cursor-based pagination
+   - Return results with metadata
 
 ## 🔄 Scheduled Updates
 
-The service automatically updates token data every 5 seconds, providing:
-- Fresh tokens data
-- Real-time WebSocket notifications for significant changes
-- Automatic cache refresh
+The service automatically updates token data every 10 seconds, providing:
+- Fresh token data from multiple sources
+- Real-time WebSocket notifications for significant changes only
+- Cache refresh across all levels
 
 ## 🚨 Error Handling
 
-The service implements comprehensive error handling:
+The service implements robust error handling:
 
-- **Retry logic** with exponential backoff for API failures
-- **Graceful degradation** when external services are unavailable
-- **Input validation** with detailed error messages
-- **Rate limit handling** with automatic retry scheduling
+- **Exponential Backoff**: Retry logic for API failures with configurable parameters
+- **Graceful Degradation**: Service continues with cached data when APIs are unavailable
+- **Input Validation**: Validation with detailed error messages
+- **Rate Limit Management**: Automatic retry scheduling
+- **WebSocket Resilience**: Automatic connection cleanup and error recovery
 
 ## 🧪 Testing
 
@@ -407,8 +439,17 @@ The service implements comprehensive error handling:
 # Check health
 curl http://localhost:3000/health
 
+# Check detailed health
+curl http://localhost:3000/health/detailed
+
 # Test WebSocket connection
 wscat -c ws://localhost:3001
+
+# Test manual refresh
+curl -X POST http://localhost:3000/api/tokens/refresh
+
+# Test with filters
+curl "http://localhost:3000/api/tokens?period=24h&sortBy=volume&limit=5"
 ```
 
 ## 📝 Development

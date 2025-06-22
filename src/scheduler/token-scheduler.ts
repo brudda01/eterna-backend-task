@@ -21,7 +21,7 @@ export class TokenScheduler {
       await this.updateTokens();
     });
 
-    console.log(`Token scheduler started - updating every 5 seconds`);
+    console.log(`Token scheduler started - updating every 10 seconds`);
   }
 
   private async updateTokens(): Promise<void> {
@@ -29,17 +29,14 @@ export class TokenScheduler {
       console.log('Scheduled token update starting...');
       const startTime = Date.now();
       
-      const tokens = await this.tokenService.refreshTokens();
+      const { allTokens, changedTokens } = await this.tokenService.refreshTokens();
       
-      if (tokens.length > 0) {
+      if (allTokens.length > 0) {
         const fetchTime = Date.now() - startTime;
-        console.log(`Successfully fetched and cached ${tokens.length} tokens in ${fetchTime}ms`);
-        
-        // Detect which tokens have actually changed
-        const changedTokens = await this.tokenService.detectChangedTokens(tokens);
+        console.log(`Successfully fetched ${allTokens.length} tokens in ${fetchTime}ms. Comparing against previous state...`);
         
         if (changedTokens.length > 0) {
-          console.log(`Broadcasting ${changedTokens.length} changed tokens out of ${tokens.length} total`);
+          console.log(`Broadcasting ${changedTokens.length} changed tokens out of ${allTokens.length} total`);
           // Send only the changed tokens via WebSocket
           this.wsServer.broadcastUpdate(changedTokens, 'scheduler');
         } else {
