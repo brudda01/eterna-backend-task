@@ -24,11 +24,8 @@ export class DexScreenerClient {
       'bonk',
       'floki',
       'wojak',
-      'chad',
       'moon',
-      'diamond',
-      'hodl',
-      'ape'
+      'hodl'
     ];
     
     const allTokens: Token[] = [];

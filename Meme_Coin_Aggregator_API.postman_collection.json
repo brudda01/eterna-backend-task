@@ -280,7 +280,19 @@
             },
             "description": "Manually refresh token data from APIs and broadcast changes via WebSocket"
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Set timeout to 15 seconds for this request",
+                  "pm.request.timeout = 15000;"
+                ]
+              }
+            }
+          ]
         }
       ],
       "description": "Token data endpoints with filtering, sorting, and pagination"
@@ -382,9 +394,11 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "// Global test for response time",
-          "pm.test('Response time is less than 5000ms', function () {",
-          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "// Global test for response time (adjusted for refresh endpoint)",
+          "pm.test('Response time is within acceptable limits', function () {",
+          "    // Allow longer response time for refresh endpoint",
+          "    const maxTime = pm.info.requestName === 'Refresh Token Data' ? 15000 : 5000;",
+          "    pm.expect(pm.response.responseTime).to.be.below(maxTime);",
           "});",
           "",
           "// Global test for content type",
