@@ -1,0 +1,144 @@
+import axios, { AxiosInstance } from 'axios';
+import { config } from '../config';
+import { Token } from '../types';
+
+export class GeckoTerminalClient {
+  private client: AxiosInstance;
+  private lastRequestTime = 0;
+  private requestInterval = 60000 / 30; // 30 requests per minute for GeckoTerminal
+
+  constructor() {
+    this.client = axios.create({
+      baseURL: 'https://api.geckoterminal.com/api/v2',
+      timeout: 15000,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'meme-coin-aggregator/1.0'
+      }
+    });
+  }
+
+  async getMultipleTokens(addresses: string[]): Promise<Token[]> {
+    if (addresses.length === 0) return [];
+    
+    // Filter and clean addresses
+    const validAddresses = this.filterValidSolanaAddresses(addresses);
+    if (validAddresses.length === 0) {
+      console.log('No valid Solana addresses found for GeckoTerminal');
+      return [];
+    }
+    
+    console.log(`Processing ${validAddresses.length} valid addresses for GeckoTerminal`);
+    
+    await this.enforceRateLimit();
+    
+    try {
+      // GeckoTerminal supports up to 30 addresses per request
+      const chunks = this.chunkAddresses(validAddresses, 30);
+      const allTokens: Token[] = [];
+      
+      for (const chunk of chunks) {
+        const addressList = chunk.join(',');
+        console.log(`Fetching GeckoTerminal data for ${chunk.length} addresses`);
+        
+        try {
+          const response = await this.client.get(`/networks/solana/tokens/multi/${addressList}`);
+          const tokens = this.normalizeTokens(response.data.data || []);
+          console.log(tokens);
+          allTokens.push(...tokens);
+          console.log(`Successfully fetched ${tokens.length} tokens from GeckoTerminal`);
+        } catch (chunkError) {
+          console.error(`GeckoTerminal chunk error:`, chunkError instanceof Error ? chunkError.message : String(chunkError));
+          continue;
+        }
+        
+        // Rate limit between chunks
+        if (chunks.length > 1) {
+          await this.enforceRateLimit();
+        }
+      }
+      
+      console.log(`GeckoTerminal enriched ${allTokens.length} tokens total`);
+      return allTokens;
+      
+    } catch (error) {
+      console.error('GeckoTerminal multi-token error:', error instanceof Error ? error.message : String(error));
+      return [];
+    }
+  }
+
+  private filterValidSolanaAddresses(addresses: string[]): string[] {
+    // Remove duplicates and filter valid Solana addresses
+    const uniqueAddresses = [...new Set(addresses)];
+    
+    return uniqueAddresses.filter(address => {
+      // Basic Solana address validation
+      if (!address || typeof address !== 'string') return false;
+      
+      // Solana addresses are base58 encoded and typically 32-44 characters
+      // They don't contain 0x prefix (Ethereum) or contain dots/special chars
+      if (address.startsWith('0x')) return false; // Ethereum address
+      if (address.includes('.')) return false; // Invalid format
+      if (address.includes('ibc/')) return false; // Cosmos IBC address
+      if (address.length < 32 || address.length > 44) return false; // Invalid length
+      
+      // Check for valid base58 characters (basic check)
+      const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+      if (!base58Regex.test(address)) return false;
+      
+      return true;
+    });
+  }
+
+  private chunkAddresses(addresses: string[], chunkSize: number): string[][] {
+    const chunks: string[][] = [];
+    for (let i = 0; i < addresses.length; i += chunkSize) {
+      chunks.push(addresses.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  private normalizeTokens(tokens: any[]): Token[] {
+    return tokens.map(token => {
+      const attributes = token.attributes || {};
+      
+      return {
+        token_address: token.id || attributes.address || '',
+        token_name: attributes.name || '',
+        token_ticker: attributes.symbol || '',
+        price_sol: parseFloat(attributes.price_usd) || 0,
+        market_cap_sol: parseFloat(attributes.market_cap_usd) || 0,
+        // GeckoTerminal provides current data, not time-period specific
+        volume_1h: 0, // Not available
+        volume_24h: parseFloat(attributes.volume_usd?.h24) || 0,
+        volume_7d: 0, // Not available in this endpoint
+        liquidity_sol: parseFloat(attributes.reserve_in_usd) || 0,
+        transaction_count_1h: 0, // Not available
+        transaction_count_24h: parseInt(attributes.transactions?.h24?.buys || 0) + parseInt(attributes.transactions?.h24?.sells || 0),
+        transaction_count_7d: 0, // Not available
+        price_1hr_change: parseFloat(attributes.price_change_percentage?.h1) || 0,
+        price_24hr_change: parseFloat(attributes.price_change_percentage?.h24) || 0,
+        price_7d_change: 0, // Not available
+        protocol: 'GeckoTerminal',
+        timestamp: new Date().toISOString()
+      };
+    }).filter(token => 
+      // Filter out tokens without basic info
+      token.token_address && 
+      token.token_name && 
+      token.token_ticker
+    );
+  }
+
+  private async enforceRateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    if (timeSinceLastRequest < this.requestInterval) {
+      const waitTime = this.requestInterval - timeSinceLastRequest;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    this.lastRequestTime = Date.now();
+  }
+} 
